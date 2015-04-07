@@ -22,6 +22,11 @@ import akka.actor.PoisonPill
 import akka.actor.Props
 import akka.actor.actorRef2Scala
 import akka.cluster.Cluster
+import akka.cluster.ClusterEvent.MemberEvent
+import akka.cluster.ClusterEvent.ReachabilityEvent
+import akka.cluster.ClusterEvent.MemberUp
+import akka.cluster.ClusterEvent.UnreachableMember
+import akka.cluster.ClusterEvent.ReachableMember
 /**
  * PaymentRunManager is responsible to query invoices to be collected, generate and dispatch jobs.
  * @author leo
@@ -29,7 +34,7 @@ import akka.cluster.Cluster
 class PaymentRunManager extends Actor with ActorLogging{
   val cluster = Cluster(context.system)
   
-  val INV_AMOUNT = 20
+  val INV_AMOUNT = 2000
   
   val workers = Map.empty[ActorRef, Option[Invoice]]
   
@@ -57,12 +62,7 @@ class PaymentRunManager extends Actor with ActorLogging{
       loadWork
       val total = workQueue.foldLeft(0.0)((acc, inv) => acc + inv.balance)
       log.info("generated {} invoices with total amount: {}", workQueue.size, total)
-      
-      // create 10 workers
-      (1 to 3).foreach{ i =>
-        val worker = context.actorOf(Props[Worker], name = "worker" + i)
-      }
-      
+            
     case WorkerCreated(worker) =>
       log.info("worker: {} is created.", worker)
       workers += (worker -> None)
@@ -113,7 +113,7 @@ class PaymentRunManager extends Actor with ActorLogging{
 object PaymentRunApp extends App {
     val port = if (args.isEmpty) "0" else args(0)
     val config = ConfigFactory.parseString(s"akka.remote.netty.tcp.port=$port").
-      withFallback(ConfigFactory.parseString("akka.cluster.roles = [backend]")).
+      withFallback(ConfigFactory.parseString("akka.cluster.roles = [frontend]")).
       withFallback(ConfigFactory.load())
 
     val system = ActorSystem("ClusterSystem", config)
@@ -123,4 +123,17 @@ object PaymentRunApp extends App {
     
     // kick off the run
     prManager ! Start  
+}
+
+object WorkerApp extends App {
+    val port = if (args.isEmpty) "0" else args(0)
+    val config = ConfigFactory.parseString(s"akka.remote.netty.tcp.port=$port").
+      withFallback(ConfigFactory.parseString("akka.cluster.roles = [backend]")).
+      withFallback(ConfigFactory.load())
+
+    val system = ActorSystem("ClusterSystem", config)
+    
+    // create one worker per node
+    system.actorOf(Props[Worker], name = "worker")
+  
 }

@@ -4,12 +4,22 @@ import akka.actor.ActorLogging
 import akka.actor.Actor
 import Messages._
 import Models._
+import akka.cluster.Cluster
+import akka.cluster.ClusterEvent.MemberEvent
+import akka.cluster.ClusterEvent.ReachabilityEvent
+import akka.cluster.ClusterEvent.MemberUp
+import akka.actor.RootActorPath
 
 
 class Worker extends Actor with ActorLogging {
+  val cluster = Cluster(context.system)
+  
   override def preStart = {
-    val prManager = context.actorSelection("/user/paymentRunManager")
-    prManager ! WorkerCreated(self)
+    cluster.subscribe(self, classOf[MemberEvent], classOf[ReachabilityEvent])
+  }
+
+  override def postStop(): Unit = {
+    cluster.unsubscribe(self)
   }
   
   def receive: Actor.Receive = {
@@ -24,6 +34,10 @@ class Worker extends Actor with ActorLogging {
       
     case NoWorkToBeDone =>
       // do nothing
+      
+    case MemberUp(member) =>
+      if (member.hasRole("frontend"))
+        context.actorSelection(RootActorPath(member.address) / "user" / "paymentRunManager") ! WorkerCreated(self)
   }
   
   private def processInvoice(inv: Invoice): Payment = {
