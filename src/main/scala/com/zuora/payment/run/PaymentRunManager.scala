@@ -5,13 +5,7 @@ import scala.collection.mutable.Queue
 import scala.language.postfixOps
 import scala.util.Random
 import com.typesafe.config.ConfigFactory
-import Messages.Job
-import Messages.NoWorkToBeDone
-import Messages.Start
-import Messages.WorkIsDone
-import Messages.WorkIsReady
-import Messages.WorkerCreated
-import Messages.WorkerRequestsWork
+import Messages._
 import Models.Invoice
 import Models.Payment
 import akka.actor.Actor
@@ -30,15 +24,18 @@ import akka.cluster.ClusterEvent.ReachableMember
 import akka.actor.RootActorPath
 import akka.actor.ActorPath
 import akka.actor.Terminated
+import akka.persistence.PersistentActor
+import akka.persistence.Recover
 /**
  * PaymentRunManager is responsible to query invoices to be collected, generate and dispatch jobs.
  * @author leo
  */
-class PaymentRunManager extends Actor with ActorLogging{
+class PaymentRunManager extends PersistentActor with ActorLogging{
   val cluster = Cluster(context.system)
   
   override def preStart = {
     cluster.subscribe(self, classOf[MemberEvent], classOf[ReachabilityEvent])
+    self ! Recover()
   }
 
   override def postStop(): Unit = {
@@ -48,12 +45,14 @@ class PaymentRunManager extends Actor with ActorLogging{
   
   val INV_AMOUNT = 20
   
+  //--------- States --------------------
   val workers = Map.empty[ActorPath, Option[Invoice]]
   
   // current work
   val workQueue: Queue[Invoice] = Queue.empty[Invoice]
   
-  val result = Queue.empty[Payment]
+  var result = List.empty[Payment]
+  //----------States End ----------------
   
   private def loadWork = {
 	  val invoices = (1 to INV_AMOUNT).map(i => Invoice(i.toString, Math.abs(Random.nextDouble()))).toSeq
@@ -61,7 +60,7 @@ class PaymentRunManager extends Actor with ActorLogging{
   }
   
   
-  def notifyWorkers: Unit = {
+  def notifyWorkers(): Unit = {
     // zip with idle workers
     workQueue.zip(workers.filter(t => t._2.isEmpty)).foreach{
       case (inv, (idleWorker, _)) =>
@@ -69,11 +68,26 @@ class PaymentRunManager extends Actor with ActorLogging{
     }
   }
   
-  def receive: Actor.Receive = {
+  override def persistenceId: String = "sample_payment_run"
+
+  override def receiveRecover: Receive = {
+    case pmt: Payment => result = pmt :: result
+    case env => log.info(">>>>>> recovering: {}, processed: {}", env, result)
+  }
+
+  override def receiveCommand: Receive = {
     case Start =>
-      loadWork
-      val total = workQueue.foldLeft(0.0)((acc, inv) => acc + inv.balance)
-      log.info("generated {} invoices with total amount: {}", workQueue.size, total)
+      if (!result.isEmpty) {
+        log.info("==========payment run manager is resumed, there are {} invoices processed", result.size)
+        loadWork
+        // remove the processed ones.
+        workQueue.dequeueAll { inv => result.exists { pmt => pmt.id == inv.id } }
+        log.info("==========there are still {} invoices to be processed", workQueue.size)
+      } else {
+    	  loadWork
+    	  val total = workQueue.foldLeft(0.0)((acc, inv) => acc + inv.balance)
+    	  log.info("==========generated {} invoices with total amount: {}", workQueue.size, total)        
+      }
             
     case WorkerCreated(worker) =>
       log.info("worker: {} is created.", worker)
@@ -117,30 +131,36 @@ class PaymentRunManager extends Actor with ActorLogging{
           worker ! Job(invoice)
         }
       }
-      showWorkerStatus
+      showWorkerStatus()
       
     case WorkIsDone(payment, worker) =>
       log.info("worker: {} has processed one payment: {}", worker, payment)
-      result.enqueue(payment)
+      // persist the state asynchronously
+      persist(payment){ pmt => 
+        result = pmt :: result
+        // check status in callback of persist, since it's asynchronous call.
+        showWorkerStatus()
+      } 
       workers += (worker.path -> None) // mark worker as idle
-      showWorkerStatus
+      
 
       if (!workQueue.isEmpty)
-        notifyWorkers
-      
-      if (result.size == INV_AMOUNT) { // no more work and all workers are idle
-        log.info("All invoices have been processed. There are {} payments in total.", result.size)
-        self ! PoisonPill
-        System.exit(0)
-      }
-      
+        notifyWorkers()
   }
   
-  private def showWorkerStatus: Unit = {
+  private def showWorkerStatus(): Unit = {
     val status = workers.map{
       case (worker, invOp) => worker + " --> " + (if (invOp.isEmpty) "idle" else invOp.get.id)
     }.mkString("\t")
     println(status)
+    println("|||| state: " + result.map(inv => inv.id).mkString(","))
+
+    if (result.size == INV_AMOUNT) { // no more work and all workers are idle
+    	log.info("All invoices have been processed. There are {} payments in total.", result.size)
+    	result = Nil  // clear the state.
+    	self ! PoisonPill
+    	System.exit(0)
+    }
   }
   
 }

@@ -10,7 +10,6 @@ object Messages {
  
   case object Start
   
-  
   // Message from workers
   case class WorkerCreated(worker: ActorRef)
   case class WorkerRequestsWork(worker: ActorRef)
