@@ -27,6 +27,9 @@ import akka.cluster.ClusterEvent.ReachabilityEvent
 import akka.cluster.ClusterEvent.MemberUp
 import akka.cluster.ClusterEvent.UnreachableMember
 import akka.cluster.ClusterEvent.ReachableMember
+import akka.actor.RootActorPath
+import akka.actor.ActorPath
+import akka.actor.Terminated
 /**
  * PaymentRunManager is responsible to query invoices to be collected, generate and dispatch jobs.
  * @author leo
@@ -34,9 +37,18 @@ import akka.cluster.ClusterEvent.ReachableMember
 class PaymentRunManager extends Actor with ActorLogging{
   val cluster = Cluster(context.system)
   
-  val INV_AMOUNT = 2000
+  override def preStart = {
+    cluster.subscribe(self, classOf[MemberEvent], classOf[ReachabilityEvent])
+  }
+
+  override def postStop(): Unit = {
+    cluster.unsubscribe(self)
+  }
+
   
-  val workers = Map.empty[ActorRef, Option[Invoice]]
+  val INV_AMOUNT = 20
+  
+  val workers = Map.empty[ActorPath, Option[Invoice]]
   
   // current work
   val workQueue: Queue[Invoice] = Queue.empty[Invoice]
@@ -53,7 +65,7 @@ class PaymentRunManager extends Actor with ActorLogging{
     // zip with idle workers
     workQueue.zip(workers.filter(t => t._2.isEmpty)).foreach{
       case (inv, (idleWorker, _)) =>
-        idleWorker ! WorkIsReady
+        context.actorSelection(idleWorker) ! WorkIsReady
     }
   }
   
@@ -65,21 +77,44 @@ class PaymentRunManager extends Actor with ActorLogging{
             
     case WorkerCreated(worker) =>
       log.info("worker: {} is created.", worker)
-      workers += (worker -> None)
+
       context.watch(worker)
-      if (!workQueue.isEmpty)
-        worker ! WorkIsReady  // only notify this worker rather then all to avoid duplicate notification.
+      
+      workers.get(worker.path) match {
+        case Some(Some(inv)) =>
+          log.info("node {} was restarted and it was processing invoice {}, will re-process the invoice. ", worker.path, inv)
+          worker ! Job(inv)
+        case _ =>
+          workers += (worker.path -> None)
+          if (!workQueue.isEmpty)
+        	  worker ! WorkIsReady  // only notify this worker rather then all to avoid duplicate notification.          
+      }
+      
+    case Terminated(worker) =>
+      workers.get(worker.path) match {
+      case Some(Some(inv)) =>
+        log.info("node {} is terminated and it was processing invoice {}, put the invoice back to queue. ", worker, inv)
+        workers -= worker.path
+        workQueue.enqueue(inv)
+      case Some(None) =>
+        log.info("node {} is terminated and it was idle ", worker)
+        workers -= worker.path
+        
+      case None =>
+        // do nothing.
+      }
       
     case WorkerRequestsWork(worker) =>
       log.info("worker: {} is requesting work.", worker)
-      if (workers.contains(worker)){
+      if (workers.contains(worker.path)){
         if (workQueue.isEmpty){
           worker ! NoWorkToBeDone
         } else {
           val invoice = workQueue.dequeue()
+    		  workers += (worker.path -> Some(invoice)) // mark current worker as working on this invoice
+
           log.info("Send job {} to worker: {}", invoice, worker)
           worker ! Job(invoice)
-          workers += (worker -> Some(invoice)) // mark current worker as working on this invoice
         }
       }
       showWorkerStatus
@@ -87,7 +122,7 @@ class PaymentRunManager extends Actor with ActorLogging{
     case WorkIsDone(payment, worker) =>
       log.info("worker: {} has processed one payment: {}", worker, payment)
       result.enqueue(payment)
-      workers += (worker -> None) // mark worker as idle
+      workers += (worker.path -> None) // mark worker as idle
       showWorkerStatus
 
       if (!workQueue.isEmpty)
@@ -103,7 +138,7 @@ class PaymentRunManager extends Actor with ActorLogging{
   
   private def showWorkerStatus: Unit = {
     val status = workers.map{
-      case (worker, invOp) => worker.path.name + " --> " + (if (invOp.isEmpty) "idle" else invOp.get.id)
+      case (worker, invOp) => worker + " --> " + (if (invOp.isEmpty) "idle" else invOp.get.id)
     }.mkString("\t")
     println(status)
   }

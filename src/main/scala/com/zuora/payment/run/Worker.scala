@@ -9,6 +9,7 @@ import akka.cluster.ClusterEvent.MemberEvent
 import akka.cluster.ClusterEvent.ReachabilityEvent
 import akka.cluster.ClusterEvent.MemberUp
 import akka.actor.RootActorPath
+import akka.cluster.ClusterEvent.ReachableMember
 
 
 class Worker extends Actor with ActorLogging {
@@ -38,11 +39,12 @@ class Worker extends Actor with ActorLogging {
     case MemberUp(member) =>
       if (member.hasRole("frontend"))
         context.actorSelection(RootActorPath(member.address) / "user" / "paymentRunManager") ! WorkerCreated(self)
+      
   }
   
   private def processInvoice(inv: Invoice): Payment = {
     // block current thread for 1 second to simulate the processing
-	  Thread.sleep(500)
+	  Thread.sleep(5000)
 	  Payment(inv.id, inv.balance)
   }
 }
