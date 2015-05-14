@@ -30,7 +30,7 @@ import akka.persistence.Recover
  * PaymentRunManager is responsible to query invoices to be collected, generate and dispatch jobs.
  * @author leo
  */
-class PaymentRunManager extends PersistentActor with ActorLogging{
+class PaymentRunManager(runNumber: String = "sample_payment_run") extends PersistentActor with ActorLogging{
   val cluster = Cluster(context.system)
   
   override def preStart = {
@@ -68,7 +68,7 @@ class PaymentRunManager extends PersistentActor with ActorLogging{
     }
   }
   
-  override def persistenceId: String = "sample_payment_run"
+  override def persistenceId: String = runNumber
 
   override def receiveRecover: Receive = {
     case pmt: Payment => result = pmt :: result
@@ -158,6 +158,7 @@ class PaymentRunManager extends PersistentActor with ActorLogging{
     if (result.size == INV_AMOUNT) { // no more work and all workers are idle
     	log.info("All invoices have been processed. There are {} payments in total.", result.size)
     	result = Nil  // clear the state.
+      
     	self ! PoisonPill
     	System.exit(0)
     }
@@ -167,6 +168,7 @@ class PaymentRunManager extends PersistentActor with ActorLogging{
 
 object PaymentRunApp extends App {
     val port = if (args.isEmpty) "0" else args(0)
+    val prNumber = if (!args.isEmpty && args.length >= 2) args(1) else "sample_payment_run"
     val config = ConfigFactory.parseString(s"akka.remote.netty.tcp.port=$port").
       withFallback(ConfigFactory.parseString("akka.cluster.roles = [frontend]")).
       withFallback(ConfigFactory.load())
@@ -174,7 +176,7 @@ object PaymentRunApp extends App {
     val system = ActorSystem("ClusterSystem", config)
     
     // create one actor for payment run
-    val prManager = system.actorOf(Props[PaymentRunManager], name = "paymentRunManager")
+    val prManager = system.actorOf(Props(classOf[PaymentRunManager], prNumber), name = "paymentRunManager")
     
     // kick off the run
     prManager ! Start  
