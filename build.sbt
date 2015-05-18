@@ -16,7 +16,11 @@ val project = Project(
       "com.typesafe.akka" %% "akka-cluster" % akkaVersion withSources() withJavadoc(),
       "com.typesafe.akka" %% "akka-contrib" % akkaVersion withSources() withJavadoc(),
       "com.typesafe.akka" %% "akka-persistence-experimental" % akkaVersion withSources() withJavadoc(),
+      "com.typesafe.akka" %% "akka-stream-experimental" % "1.0-RC2" withSources(),
+      "com.typesafe.akka" %% "akka-stream-experimental" % "1.0-RC2" withSources(),
+      "com.typesafe.akka" %% "akka-http-scala-experimental" % "1.0-RC2" withSources(),
       "com.typesafe.akka" %% "akka-multi-node-testkit" % akkaVersion withSources() withJavadoc(),
+      "org.json4s" %% "json4s-native" % "3.2.11" withSources(),
       "org.scalatest" %% "scalatest" % "2.0" % "test" withSources() withJavadoc(),
       "org.fusesource" % "sigar" % "1.6.4"),
     javaOptions in run ++= Seq(

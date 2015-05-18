@@ -26,6 +26,8 @@ import akka.actor.ActorPath
 import akka.actor.Terminated
 import akka.persistence.PersistentActor
 import akka.persistence.Recover
+import org.json4s.JsonUtil
+
 /**
  * PaymentRunManager is responsible to query invoices to be collected, generate and dispatch jobs.
  * @author leo
@@ -146,6 +148,9 @@ class PaymentRunManager(runNumber: String = "sample_payment_run") extends Persis
 
       if (!workQueue.isEmpty)
         notifyWorkers()
+        
+    case CheckProgress =>
+      sender ! RunProgress(INV_AMOUNT, INV_AMOUNT - workQueue.size, 0)
   }
   
   private def showWorkerStatus(): Unit = {
@@ -167,19 +172,53 @@ class PaymentRunManager(runNumber: String = "sample_payment_run") extends Persis
 }
 
 object PaymentRunApp extends App {
+    import akka.http.scaladsl.Http
+    import akka.stream.ActorFlowMaterializer
+    import akka.http.scaladsl.model._
+    import akka.http.scaladsl.model.HttpMethods._
+    import akka.stream.scaladsl.{Flow, Sink, Source}
+    import scala.concurrent.Future
+    import akka.pattern.ask
+    import akka.util.Timeout
+    import scala.concurrent.duration._
+    import scala.concurrent.ExecutionContext.Implicits.global
+    import org.json4s.JsonDSL._
+    import org.json4s.native.Serialization
+    import org.json4s.native.Serialization.write
+    
     val port = if (args.isEmpty) "0" else args(0)
     val prNumber = if (!args.isEmpty && args.length >= 2) args(1) else "sample_payment_run"
     val config = ConfigFactory.parseString(s"akka.remote.netty.tcp.port=$port").
       withFallback(ConfigFactory.parseString("akka.cluster.roles = [frontend]")).
       withFallback(ConfigFactory.load())
 
-    val system = ActorSystem("ClusterSystem", config)
+    implicit val system = ActorSystem("ClusterSystem", config)
+    implicit val materializer = ActorFlowMaterializer()
     
     // create one actor for payment run
-    val prManager = system.actorOf(Props(classOf[PaymentRunManager], prNumber), name = "paymentRunManager")
+    val prManager: ActorRef = system.actorOf(Props(classOf[PaymentRunManager], prNumber), name = "paymentRunManager")
     
     // kick off the run
-    prManager ! Start  
+    prManager ! Start
+    
+    
+    val requestHandler: HttpRequest => Future[HttpResponse] = {
+      case HttpRequest(GET, Uri.Path("/"), _, _, _) =>
+        implicit val timeout = Timeout(5 seconds)
+        val future = prManager ? CheckProgress
+        
+        future.map { resp =>
+          println(resp)
+          implicit val formats = Serialization.formats(org.json4s.NoTypeHints)
+          HttpResponse(entity = HttpEntity(MediaTypes.`application/json`, write(resp.asInstanceOf[RunProgress])))
+        }
+    }
+    
+    val serverSource: Source[Http.IncomingConnection, Future[Http.ServerBinding]] = Http(system).bind(interface = "localhost", port = 8080)
+    
+    val bindingFuture: Future[Http.ServerBinding] = serverSource.to(Sink.foreach { connection =>  
+      connection.handleWithAsyncHandler(requestHandler)
+    }).run()
 }
 
 object WorkerApp extends App {
