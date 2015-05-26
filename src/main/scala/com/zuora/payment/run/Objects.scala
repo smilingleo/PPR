@@ -9,6 +9,7 @@ object Messages {
   import Models._
  
   case object Start
+  case class CreateWorker(n: Int, pmKey: String)
   
   // Message from workers
   case class WorkerCreated(worker: ActorRef)
@@ -22,8 +23,12 @@ object Messages {
   
   
   // Message for monitor
-  case object CheckProgress
-  case class RunProgress(total: Int, done: Int, failed: Int)
+  case class CheckProgress(pmKey: String)  // send to Server.
+  case object CheckProgress  // send to PaymentRunManager
+  case class RunProgress(pmKey: String, total: Int, done: Int, failed: Int)
+  
+  // Message for Server
+  case class NewJob(pmKey: String)
 }
 
 object Models {

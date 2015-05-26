@@ -10,9 +10,13 @@ import akka.cluster.ClusterEvent.ReachabilityEvent
 import akka.cluster.ClusterEvent.MemberUp
 import akka.actor.RootActorPath
 import akka.cluster.ClusterEvent.ReachableMember
+import com.typesafe.config.ConfigFactory
+import akka.actor.ActorSystem
+import akka.actor.Props
+import akka.actor.ActorRef
 
 
-class Worker extends Actor with ActorLogging {
+class Worker(runKey: String) extends Actor with ActorLogging {
   val cluster = Cluster(context.system)
   
   override def preStart = {
@@ -38,7 +42,7 @@ class Worker extends Actor with ActorLogging {
       
     case MemberUp(member) =>
       if (member.hasRole("frontend"))
-        context.actorSelection(RootActorPath(member.address) / "user" / "paymentRunManager") ! WorkerCreated(self)
+        context.actorSelection("akka.tcp://ClusterPPR@*/user/paymentRunManager/" + runKey) ! WorkerCreated(self)
       
   }
   
@@ -47,4 +51,31 @@ class Worker extends Actor with ActorLogging {
 	  Thread.sleep(5000)
 	  Payment(inv.id, inv.balance)
   }
+}
+
+/**
+ * Each worker node will have one WorkerProvider.
+ */
+class WorkerProvider extends Actor with ActorLogging {
+  def receive: Actor.Receive = {
+    case CreateWorker(n, runKey) =>
+      log.info("Creating {} workers for {}", n, runKey)
+      (1 to n).foreach(i => context.actorOf(Props(classOf[Worker], runKey)))
+  }
+}
+
+/**
+ * A worker node to create workers for each payment run
+ * @author leo
+ */
+object WorkerNode extends App {
+    val port = if (args.isEmpty) "0" else args(0)
+    val config = ConfigFactory.parseString(s"akka.remote.netty.tcp.port=$port").
+      withFallback(ConfigFactory.parseString("akka.cluster.roles = [backend]")).
+      withFallback(ConfigFactory.load())
+
+    val system = ActorSystem("ClusterPPR", config)
+    
+    // create one worker provider per node
+    system.actorOf(Props[WorkerProvider], name = "workerProvider")
 }
