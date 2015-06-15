@@ -6,10 +6,22 @@ This is version #4, in this version, the cluster is fully recoverable.
 To run the app, in the shell:
 
 ```bash
-sbt "runMain com.zuora.payment.run.WorkerApp 2551"
+sbt "runMain com.zuora.payment.run.WorkerNode 2551"
 ```
 
 Open another shell:
 
 ```bash
-sbt "runMain com.zuora.payment.run.PaymentRunApp 2552"
+sbt "runMain com.zuora.api.Server 2554"
+
+To create a payment run:
+
+```bash
+curl -X POST http://localhost:8080/payment-runs/{run-key}
+```
+
+To check progress:
+
+```bash
+curl -X GET http://localhost:8080/progress/{run-key}
+```

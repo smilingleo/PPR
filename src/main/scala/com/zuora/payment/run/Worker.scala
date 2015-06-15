@@ -14,19 +14,15 @@ import com.typesafe.config.ConfigFactory
 import akka.actor.ActorSystem
 import akka.actor.Props
 import akka.actor.ActorRef
+import akka.actor.PoisonPill
 
 
-class Worker(runKey: String) extends Actor with ActorLogging {
-  val cluster = Cluster(context.system)
-  
+class Worker(prActor: ActorRef) extends Actor with ActorLogging {
   override def preStart = {
-    cluster.subscribe(self, classOf[MemberEvent], classOf[ReachabilityEvent])
+    log.info("notifying {} I'm created.", prActor)
+    prActor ! WorkerCreated(self)
   }
 
-  override def postStop(): Unit = {
-    cluster.unsubscribe(self)
-  }
-  
   def receive: Actor.Receive = {
     case WorkIsReady =>
       log.info("Requesting work")
@@ -39,10 +35,6 @@ class Worker(runKey: String) extends Actor with ActorLogging {
       
     case NoWorkToBeDone =>
       // do nothing
-      
-    case MemberUp(member) =>
-      if (member.hasRole("frontend"))
-        context.actorSelection("akka.tcp://ClusterPPR@*/user/paymentRunManager/" + runKey) ! WorkerCreated(self)
       
   }
   
@@ -60,7 +52,10 @@ class WorkerProvider extends Actor with ActorLogging {
   def receive: Actor.Receive = {
     case CreateWorker(n, runKey) =>
       log.info("Creating {} workers for {}", n, runKey)
-      (1 to n).foreach(i => context.actorOf(Props(classOf[Worker], runKey)))
+      // Worker created here are children of worker provider, not payment run manager.
+      (1 to n).foreach { i => 
+        context.actorOf(Props(classOf[Worker], sender), s"workerFor_${runKey}_${i}")
+      }
   }
 }
 

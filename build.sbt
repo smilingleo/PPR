@@ -3,6 +3,8 @@ import com.typesafe.sbt.SbtMultiJvm.MultiJvmKeys.MultiJvm
 
 val akkaVersion = "2.4-SNAPSHOT"
 
+val sprayVersion = "1.3.2"
+
 val project = Project(
   id = "parallel-payment-run",
   base = file("."),
@@ -13,14 +15,18 @@ val project = Project(
     scalacOptions in Compile ++= Seq("-encoding", "UTF-8", "-target:jvm-1.6", "-deprecation", "-feature", "-unchecked", "-Xlog-reflective-calls", "-Xlint"),
     javacOptions in Compile ++= Seq("-source", "1.6", "-target", "1.6", "-Xlint:unchecked", "-Xlint:deprecation"),
     libraryDependencies ++= Seq(
-      "com.typesafe.akka" %% "akka-cluster" % akkaVersion withSources() withJavadoc(),
-      "com.typesafe.akka" %% "akka-contrib" % akkaVersion withSources() withJavadoc(),
+      "io.spray"          %% "spray-can"     % sprayVersion withSources() withJavadoc(),
+      "io.spray"          %% "spray-routing" % sprayVersion withSources() withJavadoc(),
+      "io.spray"          %% "spray-json"    % "1.3.1",    
+      "com.typesafe.akka" %% "akka-cluster"  % akkaVersion withSources() withJavadoc(),
+      "com.typesafe.akka" %% "akka-contrib"  % akkaVersion withSources() withJavadoc(),
       "com.typesafe.akka" %% "akka-persistence-experimental" % akkaVersion withSources() withJavadoc(),
       "com.typesafe.akka" %% "akka-stream-experimental" % "1.0-RC2" withSources(),
       "com.typesafe.akka" %% "akka-stream-experimental" % "1.0-RC2" withSources(),
       "com.typesafe.akka" %% "akka-http-scala-experimental" % "1.0-RC2" withSources(),
       "com.typesafe.akka" %% "akka-multi-node-testkit" % akkaVersion withSources() withJavadoc(),
       "org.json4s" %% "json4s-native" % "3.2.11" withSources(),
+      "org.json4s" %% "json4s-jackson" % "3.2.11" withSources(),
       "org.scalatest" %% "scalatest" % "2.0" % "test" withSources() withJavadoc(),
       "org.fusesource" % "sigar" % "1.6.4"),
     javaOptions in run ++= Seq(

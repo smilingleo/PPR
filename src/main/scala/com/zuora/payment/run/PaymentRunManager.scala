@@ -4,39 +4,35 @@ import scala.collection.mutable.Map
 import scala.collection.mutable.Queue
 import scala.language.postfixOps
 import scala.util.Random
-import com.typesafe.config.ConfigFactory
+
 import Messages._
 import Models.Invoice
 import Models.Payment
-import akka.actor.Actor
 import akka.actor.ActorLogging
-import akka.actor.ActorRef
-import akka.actor.ActorSystem
+import akka.actor.ActorPath
+import akka.actor.ActorSelection.toScala
 import akka.actor.PoisonPill
-import akka.actor.Props
+import akka.actor.RootActorPath
+import akka.actor.Terminated
 import akka.actor.actorRef2Scala
 import akka.cluster.Cluster
+import akka.cluster.ClusterEvent.InitialStateAsEvents
 import akka.cluster.ClusterEvent.MemberEvent
-import akka.cluster.ClusterEvent.ReachabilityEvent
 import akka.cluster.ClusterEvent.MemberUp
-import akka.cluster.ClusterEvent.UnreachableMember
-import akka.cluster.ClusterEvent.ReachableMember
-import akka.actor.RootActorPath
-import akka.actor.ActorPath
-import akka.actor.Terminated
+import akka.cluster.ClusterEvent.ReachabilityEvent
+import akka.cluster.Member
 import akka.persistence.PersistentActor
 import akka.persistence.Recover
-import org.json4s.JsonUtil
 
 /**
  * PaymentRunManager is responsible to query invoices to be collected, generate and dispatch jobs.
  * @author leo
  */
-class PaymentRunManager(runNumber: String = "sample_payment_run") extends PersistentActor with ActorLogging{
+class PaymentRunManager(runNumber: String = "sample_payment_run", INV_AMOUNT: Int = 20) extends PersistentActor with ActorLogging{
   val cluster = Cluster(context.system)
   
   override def preStart = {
-    cluster.subscribe(self, classOf[MemberEvent], classOf[ReachabilityEvent])
+    cluster.subscribe(self, initialStateMode = InitialStateAsEvents, classOf[MemberEvent], classOf[ReachabilityEvent])
     self ! Recover()
   }
 
@@ -44,11 +40,10 @@ class PaymentRunManager(runNumber: String = "sample_payment_run") extends Persis
     cluster.unsubscribe(self)
   }
 
-  
-  val INV_AMOUNT = 20
-  
   //--------- States --------------------
   val workers = Map.empty[ActorPath, Option[Invoice]]
+  
+  var nodes = List.empty[Member]
   
   // current work
   val workQueue: Queue[Invoice] = Queue.empty[Invoice]
@@ -79,6 +74,9 @@ class PaymentRunManager(runNumber: String = "sample_payment_run") extends Persis
 
   override def receiveCommand: Receive = {
     case Start =>
+      
+      // Send message to WorkerProvider to create Worker first
+      
       if (!result.isEmpty) {
         log.info("==========payment run manager is resumed, there are {} invoices processed", result.size)
         loadWork
@@ -88,7 +86,7 @@ class PaymentRunManager(runNumber: String = "sample_payment_run") extends Persis
       } else {
     	  loadWork
     	  val total = workQueue.foldLeft(0.0)((acc, inv) => acc + inv.balance)
-    	  log.info("==========generated {} invoices with total amount: {}", workQueue.size, total)        
+    	  log.info("==========generated {} invoices with total amount: {}", workQueue.size, total)
       }
             
     case WorkerCreated(worker) =>
@@ -150,8 +148,19 @@ class PaymentRunManager(runNumber: String = "sample_payment_run") extends Persis
         notifyWorkers()
         
     case CheckProgress(pmKey) =>
-      if (pmKey == runNumber) // only respond to the pm running on this node.
-        sender ! RunProgress(pmKey, INV_AMOUNT, INV_AMOUNT - workQueue.size, 0)
+      log.info("*************respond run progress for {}", runNumber)
+  	  sender ! Some(RunProgress(runNumber, INV_AMOUNT, INV_AMOUNT - workQueue.size, 0))
+        
+    case MemberUp(member) =>
+      if (member.hasRole("backend")){
+        log.info("found one worker provider: {}", member)
+        nodes = member :: nodes
+        // ask WorkerProvider to create workers for this payment run
+        val providerPath = (RootActorPath(member.address) / "user" / "workerProvider")
+        log.info("asking {} to generate 2 workers.", providerPath)
+        context.actorSelection(providerPath) ! CreateWorker(2, runNumber)
+      }
+        
   }
   
   private def showWorkerStatus(): Unit = {
@@ -165,25 +174,10 @@ class PaymentRunManager(runNumber: String = "sample_payment_run") extends Persis
     	log.info("All invoices have been processed. There are {} payments in total.", result.size)
     	result = Nil  // clear the state.
       
+//      workers.foreach{ worker => context.actorSelection(worker._1) ! PoisonPill }
+            
     	self ! PoisonPill
-    	System.exit(0)
     }
   }
   
-}
-
-object PaymentRunApp extends App {
-    val port = if (args.isEmpty) "0" else args(0)
-    val prNumber = if (!args.isEmpty && args.length >= 2) args(1) else "sample_payment_run"
-    val config = ConfigFactory.parseString(s"akka.remote.netty.tcp.port=$port").
-      withFallback(ConfigFactory.parseString("akka.cluster.roles = [frontend]")).
-      withFallback(ConfigFactory.load())
-
-    val system = ActorSystem("ClusterPPR", config)
-    
-    // create one actor for payment run
-    val prManager: ActorRef = system.actorOf(Props(classOf[PaymentRunManager], prNumber), name = "paymentRunManager")
-    
-    // kick off the run
-    prManager ! Start
 }
