@@ -6,21 +6,27 @@ import scala.concurrent.duration.DurationInt
 import scala.language.postfixOps
 import scala.util.Random
 
-import com.zuora.payment.run.Messages._
-import com.zuora.payment.run.PaymentRunManager
+import org.json4s.JsonDSL.boolean2jvalue
+import org.json4s.JsonDSL.pair2Assoc
+import org.json4s.JsonDSL.string2jvalue
+
+import com.zuora.payment.run.Messages.CheckProgress
+import com.zuora.payment.run.Messages.CheckStatus
+import com.zuora.payment.run.Messages.CreatePaymentRun
+import com.zuora.payment.run.Messages.Error
+import com.zuora.payment.run.Messages.Node
+import com.zuora.payment.run.Messages.RunProgress
+import com.zuora.payment.run.Messages.Success
 
 import akka.actor.Actor
 import akka.actor.ActorLogging
 import akka.actor.ActorRef
-import akka.actor.Deploy
-import akka.actor.Props
+import akka.actor.ActorSelection.toScala
+import akka.actor.RootActorPath
 import akka.actor.actorRef2Scala
 import akka.cluster.Member
 import akka.pattern.ask
-import akka.remote.RemoteScope
 import akka.util.Timeout
-import org.json4s.jackson.JsonMethods._
-import org.json4s.JsonDSL._
 /**
  * @author leo
  */
@@ -40,8 +46,19 @@ class ServerManager(db: Map[String, ActorRef], nodes: List[Member]) extends Acto
           sender() ! Error("no payment run found")
       }
 
-    case CheckClusterStatus =>
-      val children = nodes.zipWithIndex.map { t => Node("Node" + t._2, "node", Seq.empty[Node]) }
+    case CheckStatus =>
+      val children = nodes.zipWithIndex.map { t =>
+        val member = t._1
+        val providerPath = (RootActorPath(member.address) / "user" / "nodeManager")
+        val children = Await.result(ask(context.actorSelection(providerPath), CheckStatus).mapTo[Iterable[String]], 5 seconds)
+        val workers = children.map{ name =>
+          if (name.startsWith("paymentRunManager"))
+            Node(name, "paymentRunManager", Seq.empty[Node])
+          else
+            Node(name, "worker", Seq.empty[Node])
+        }
+        Node("Node" + t._2, "node", Node("nodeManager", "nodeManager", workers.toSeq) :: Nil) 
+      }
       val cluster = Node("Akka Cluster", "cluster", children)
       log.info(s"currently the cluster is: $cluster")
       sender() ! Success(cluster)
@@ -52,13 +69,7 @@ class ServerManager(db: Map[String, ActorRef], nodes: List[Member]) extends Acto
         val member = nodes(Random.nextInt(nodes.size))
 
         log.info("creating payment run actor on {}", member)
-        // create a payment run actor remotely
-        val pmActor = context.system.actorOf(Props(classOf[PaymentRunManager], job.pmKey, job.invoices).withDeploy(Deploy(scope = RemoteScope(member.address))),
-          name = "paymentRunManager_" + job.pmKey)
-        
-        context.actorSelection("/user/Server") ! Running(job.pmKey, pmActor)
-
-        pmActor ! Start
+        context.actorSelection((RootActorPath(member.address) / "user" / "nodeManager")) ! CreatePaymentRun(job)
         
         sender() ! Success(("success" -> true) ~ ("node" -> s"${member.address}"))
         

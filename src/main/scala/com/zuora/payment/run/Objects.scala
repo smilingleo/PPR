@@ -33,7 +33,8 @@ object Messages {
   sealed trait RequestMessage
   // Message for monitor
   case class CheckProgress(pmKey: String) extends RequestMessage // send to Server.
-  case object CheckClusterStatus extends RequestMessage
+  case object CheckStatus extends RequestMessage
+  
   case class CreatePaymentRun(job: NewJob) extends RequestMessage
   case object CheckProgress  // send to PaymentRunManager
   case class RunProgress(pmKey: String, total: Int, done: Int, failed: Int)

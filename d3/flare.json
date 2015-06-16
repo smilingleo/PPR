@@ -4,7 +4,7 @@
   {
    "name": "Node1",
    "children": [
-    {"name": "WorkerProvider", "role": "actor"},
+    {"name": "nodeManager", "role": "actor"},
     {"name": "Worker1-pm001", "role": "actor"},
     {"name": "Worker2-pm001", "role": "actor"}
    ],
@@ -13,7 +13,7 @@
   {
    "name": "Node2",
    "children": [
-    {"name": "WorkerProvider", "role": "actor"},
+    {"name": "nodeManager", "role": "actor"},
     {"name": "Worker1-pm001", "role": "actor"},
     {"name": "Worker2-pm001", "role": "actor"}
    ],
@@ -22,7 +22,7 @@
   {
    "name": "Node3",
    "children": [
-    {"name": "WorkerProvider", "role": "actor"},
+    {"name": "nodeManager", "role": "actor"},
     {"name": "Worker1-pm001", "role": "actor"},
     {"name": "Worker2-pm001", "role": "actor"}
    ],
@@ -31,7 +31,7 @@
   {
    "name": "Node4",
    "children": [
-    {"name": "WorkerProvider", "role": "actor"},
+    {"name": "nodeManager", "role": "actor"},
     {"name": "Worker1-pm001", "role": "actor"},
     {"name": "Worker2-pm001", "role": "actor"},
     {"name": "Server", "role": "actor"}

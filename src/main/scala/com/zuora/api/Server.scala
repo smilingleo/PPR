@@ -6,7 +6,13 @@ import scala.language.postfixOps
 import org.json4s.DefaultFormats
 
 import com.typesafe.config.ConfigFactory
-import com.zuora.payment.run.Messages._
+import com.zuora.payment.run.Messages.CheckProgress
+import com.zuora.payment.run.Messages.CheckStatus
+import com.zuora.payment.run.Messages.CreatePaymentRun
+import com.zuora.payment.run.Messages.NewJob
+import com.zuora.payment.run.Messages.RequestMessage
+import com.zuora.payment.run.Messages.RunCompletion
+import com.zuora.payment.run.Messages.Running
 
 import akka.actor.Actor
 import akka.actor.ActorLogging
@@ -82,7 +88,7 @@ trait ServerService extends HttpService with PerRequestCreator with Json4sSuppor
       path("cluster-status") {
         get {
           handlePerRequest {
-            CheckClusterStatus
+            CheckStatus
           }
         }
       } ~

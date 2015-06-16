@@ -5,7 +5,17 @@ import scala.collection.mutable.Queue
 import scala.language.postfixOps
 import scala.util.Random
 
-import Messages._
+import Messages.CheckProgress
+import Messages.CreateWorker
+import Messages.Job
+import Messages.NoWorkToBeDone
+import Messages.RunCompletion
+import Messages.RunProgress
+import Messages.Start
+import Messages.WorkIsDone
+import Messages.WorkIsReady
+import Messages.WorkerCreated
+import Messages.WorkerRequestsWork
 import Models.Invoice
 import Models.Payment
 import akka.actor.ActorLogging
@@ -75,8 +85,6 @@ class PaymentRunManager(runNumber: String = "sample_payment_run", INV_AMOUNT: In
   override def receiveCommand: Receive = {
     case Start =>
       
-      // Send message to WorkerProvider to create Worker first
-      
       if (!result.isEmpty) {
         log.info("==========payment run manager is resumed, there are {} invoices processed", result.size)
         loadWork
@@ -88,6 +96,7 @@ class PaymentRunManager(runNumber: String = "sample_payment_run", INV_AMOUNT: In
     	  val total = workQueue.foldLeft(0.0)((acc, inv) => acc + inv.balance)
     	  log.info("==========generated {} invoices with total amount: {}", workQueue.size, total)
       }
+
             
     case WorkerCreated(worker) =>
       log.info("worker: {} is created.", worker)
@@ -155,8 +164,10 @@ class PaymentRunManager(runNumber: String = "sample_payment_run", INV_AMOUNT: In
       if (member.hasRole("backend")){
         log.info("found one worker provider: {}", member)
         nodes = member :: nodes
-        // ask WorkerProvider to create workers for this payment run
-        val providerPath = (RootActorPath(member.address) / "user" / "workerProvider")
+        // tell nodeManager to create worker for me.
+        // only do this for new created payment run mamager, don't do it for recovered payment run. ???
+        // ask nodeManager to create workers for this payment run
+        val providerPath = (RootActorPath(member.address) / "user" / "nodeManager")
         log.info("asking {} to generate 2 workers.", providerPath)
         context.actorSelection(providerPath) ! CreateWorker(2, runNumber)
       }
@@ -174,8 +185,7 @@ class PaymentRunManager(runNumber: String = "sample_payment_run", INV_AMOUNT: In
     	log.info("All invoices have been processed. There are {} payments in total.", result.size)
     	result = Nil  // clear the state.
       
-//      workers.foreach{ worker => context.actorSelection(worker._1) ! PoisonPill }
-            
+      nodes.foreach(member => context.actorSelection(RootActorPath(member.address) / "user" / "nodeManager") ! RunCompletion(runNumber))
     	self ! PoisonPill
     }
   }
