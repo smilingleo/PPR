@@ -44,7 +44,7 @@ object Messages {
   
   sealed trait ResultMessage
   case class Created(location: String) extends ResultMessage
-  case class Success[T](payload: T) extends ResultMessage
+  case class Success[T <: AnyRef](payload: T) extends ResultMessage
 
 case class Error(message: String)
   

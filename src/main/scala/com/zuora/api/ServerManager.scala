@@ -5,34 +5,28 @@ import scala.concurrent.Future
 import scala.concurrent.duration.DurationInt
 import scala.language.postfixOps
 import scala.util.Random
-
-import org.json4s.JsonDSL.boolean2jvalue
-import org.json4s.JsonDSL.pair2Assoc
-import org.json4s.JsonDSL.string2jvalue
-
-import com.zuora.payment.run.Messages.CheckProgress
-import com.zuora.payment.run.Messages.CheckStatus
-import com.zuora.payment.run.Messages.CreatePaymentRun
-import com.zuora.payment.run.Messages.Error
-import com.zuora.payment.run.Messages.Node
-import com.zuora.payment.run.Messages.RunProgress
-import com.zuora.payment.run.Messages.Success
-
+import com.zuora.payment.run.Messages._
+import com.zuora.payment.run.PaymentRunManager
 import akka.actor.Actor
 import akka.actor.ActorLogging
 import akka.actor.ActorRef
-import akka.actor.ActorSelection.toScala
-import akka.actor.RootActorPath
+import akka.actor.Deploy
+import akka.actor.Props
 import akka.actor.actorRef2Scala
 import akka.cluster.Member
 import akka.pattern.ask
+import akka.remote.RemoteScope
 import akka.util.Timeout
+import org.json4s.jackson.JsonMethods._
+import org.json4s.JsonDSL._
+import akka.actor.RootActorPath
+import akka.actor.Identify
 /**
  * @author leo
  */
 class ServerManager(db: Map[String, ActorRef], nodes: List[Member]) extends Actor with ActorLogging {
   implicit val timeout = Timeout(5 seconds)
-
+  
   def receive: Actor.Receive = {
     case CheckProgress(pmKey) =>
       log.info(s"checking progress for payment-run: $pmKey, db: $db")
@@ -49,18 +43,25 @@ class ServerManager(db: Map[String, ActorRef], nodes: List[Member]) extends Acto
     case CheckStatus =>
       val children = nodes.zipWithIndex.map { t =>
         val member = t._1
+        val nodeName = member.address.host.getOrElse("Node") + ":" + member.address.port.getOrElse(t._2)
         val providerPath = (RootActorPath(member.address) / "user" / "nodeManager")
-        val children = Await.result(ask(context.actorSelection(providerPath), CheckStatus).mapTo[Iterable[String]], 5 seconds)
-        val workers = children.map{ name =>
-          if (name.startsWith("paymentRunManager"))
-            Node(name, "paymentRunManager", Seq.empty[Node])
-          else
-            Node(name, "worker", Seq.empty[Node])
+        try{
+        	val children = Await.result(ask(context.actorSelection(providerPath), CheckStatus).mapTo[Iterable[String]], 2 seconds)
+        			val workers = children.map{ name =>
+        			if (name.startsWith("paymentRunManager"))
+        				Node(name, "paymentRunManager", Seq.empty[Node])
+        				else
+        					Node(name, "worker", Seq.empty[Node])
+        	}
+        	Node(nodeName, "node", Node("nodeManager", "nodeManager", workers.toSeq) :: Nil) 
+          
+        }catch{
+          case e: java.util.concurrent.TimeoutException =>
+            Node(nodeName, "node", Nil)
         }
-        Node("Node" + t._2, "node", Node("nodeManager", "nodeManager", workers.toSeq) :: Nil) 
       }
+      
       val cluster = Node("Akka Cluster", "cluster", children)
-      log.info(s"currently the cluster is: $cluster")
       sender() ! Success(cluster)
 
     case CreatePaymentRun(job) =>

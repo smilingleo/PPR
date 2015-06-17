@@ -4,18 +4,7 @@ import scala.collection.mutable.Map
 import scala.collection.mutable.Queue
 import scala.language.postfixOps
 import scala.util.Random
-
-import Messages.CheckProgress
-import Messages.CreateWorker
-import Messages.Job
-import Messages.NoWorkToBeDone
-import Messages.RunCompletion
-import Messages.RunProgress
-import Messages.Start
-import Messages.WorkIsDone
-import Messages.WorkIsReady
-import Messages.WorkerCreated
-import Messages.WorkerRequestsWork
+import Messages._
 import Models.Invoice
 import Models.Payment
 import akka.actor.ActorLogging
@@ -33,6 +22,9 @@ import akka.cluster.ClusterEvent.ReachabilityEvent
 import akka.cluster.Member
 import akka.persistence.PersistentActor
 import akka.persistence.Recover
+import akka.actor.Props
+import akka.actor.Deploy
+import akka.remote.RemoteScope
 
 /**
  * PaymentRunManager is responsible to query invoices to be collected, generate and dispatch jobs.

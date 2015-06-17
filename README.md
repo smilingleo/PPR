@@ -17,7 +17,7 @@ sbt "runMain com.zuora.api.Server 2554"
 To create a payment run:
 
 ```bash
-curl -X POST http://localhost:8080/payment-runs/{run-key}
+curl -X POST -H "Content-Type:application/json" http://172.17.0.3:8080/payment-runs -d '{"pmKey": "pm001", "invoices": 100}'
 ```
 
 To check progress:

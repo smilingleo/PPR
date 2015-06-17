@@ -24,6 +24,14 @@ import akka.actor.PoisonPill
 import akka.actor.Props
 import akka.actor.actorRef2Scala
 import akka.actor.DeadLetter
+import akka.cluster.Cluster
+import akka.cluster.ClusterEvent.UnreachableMember
+import akka.cluster.ClusterEvent.InitialStateAsEvents
+import akka.cluster.ClusterEvent.MemberEvent
+import akka.cluster.ClusterEvent.MemberUp
+import akka.cluster.Member
+import akka.cluster.ClusterEvent.MemberRemoved
+import akka.actor.RootActorPath
 
 
 class Worker(prActor: ActorRef) extends Actor with ActorLogging {
@@ -58,9 +66,17 @@ class Worker(prActor: ActorRef) extends Actor with ActorLogging {
  * Each worker node will have one nodeManager.
  */
 class NodeManager extends Actor with ActorLogging {
+  val cluster = Cluster(context.system)
+  var serverMember: Option[Member] = None
+  
   override def preStart = {
+    cluster.subscribe(self, initialStateMode = InitialStateAsEvents, classOf[MemberEvent], classOf[UnreachableMember])
     context.system.eventStream.subscribe(self, classOf[DeadLetter])
   }
+  
+  override def postStop(): Unit = {
+    cluster.unsubscribe(self)
+  }  
   
   def receive: Actor.Receive = {
     case CreateWorker(n, runKey) =>
@@ -74,8 +90,10 @@ class NodeManager extends Actor with ActorLogging {
        val pmActor = context.actorOf(Props(classOf[PaymentRunManager], job.pmKey, job.invoices), name = "paymentRunManager_" + job.pmKey)
        log.info("created payment run {}", pmActor)
        pmActor ! Start
-       // notify Server, but where is server ?
-       context.actorSelection("/user/Server") ! Running(job.pmKey, pmActor)
+       if (serverMember.isDefined){
+         val serverPath = RootActorPath(serverMember.get.address) / "user" / "Server"
+    		 context.system.actorSelection(serverPath) ! Running(job.pmKey, pmActor)
+       }
        
     case CheckStatus =>
        val actorNames = context.children.map(ref => ref.path.name)
@@ -87,6 +105,21 @@ class NodeManager extends Actor with ActorLogging {
       
     case d: DeadLetter =>
       log.info("xxxxxxxxx dead letter found: {}", d)
+      
+    case MemberUp(member) =>
+      if (member.hasRole("server")) {
+        log.info("discovered server node on: {}", member)
+        serverMember = Some(member)
+      }
+    case UnreachableMember(member) =>
+      if (member.hasRole("server")) {
+        serverMember = None
+      }
+    case MemberRemoved(member, previousStatus) =>
+      if (member.hasRole("server")) {
+        serverMember = None
+      }
+      
   }
 }
 

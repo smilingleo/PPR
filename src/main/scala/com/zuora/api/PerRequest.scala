@@ -27,20 +27,20 @@ import spray.http.StatusCodes.InternalServerError
 import spray.http.StatusCodes.OK
 import spray.httpx.Json4sSupport
 import spray.routing.RequestContext
+import spray.routing.directives.RouteDirectives._
 
 /**
  * Per request pattern, taken from https://github.com/NET-A-PORTER/spray-actor-per-request
  *
  * Created by rguderlei on 25.02.14.
  */
-trait PerRequest extends Actor with Json4sSupport{
+trait PerRequest extends Actor with Json4sSupport {
     def r: RequestContext
     def target: ActorRef
     def message: RequestMessage
     import context._
-    
     val json4sFormats = DefaultFormats
-
+    
     setReceiveTimeout(2 seconds)
 
     target ! message
@@ -53,11 +53,11 @@ trait PerRequest extends Actor with Json4sSupport{
         complete(BadRequest, ("success" -> false) ~ ("errorMsg" -> message))
       
       case ReceiveTimeout => 
-        complete(GatewayTimeout, "Request timeout")
+        complete(GatewayTimeout, ("success" -> false) ~ ("errorMsg" -> "Request timeout"))
     }
 
-    def complete[T](status: StatusCode, obj: T, headers: List[HttpHeader] = List()): Unit = {
-      r.withHttpResponseHeadersMapped(oldheaders => oldheaders:::headers).complete(status, obj)
+    def complete[T <: AnyRef](status: StatusCode, obj: T, headers: List[HttpHeader] = List()): Unit = {
+      r.withHttpResponseHeadersMapped(oldheaders => oldheaders:::headers).complete(obj)
       stop(self)
     }
 

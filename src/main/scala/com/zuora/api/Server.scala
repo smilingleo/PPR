@@ -2,9 +2,7 @@ package com.zuora.api
 
 import scala.concurrent.duration.DurationInt
 import scala.language.postfixOps
-
 import org.json4s.DefaultFormats
-
 import com.typesafe.config.ConfigFactory
 import com.zuora.payment.run.Messages.CheckProgress
 import com.zuora.payment.run.Messages.CheckStatus
@@ -13,7 +11,6 @@ import com.zuora.payment.run.Messages.NewJob
 import com.zuora.payment.run.Messages.RequestMessage
 import com.zuora.payment.run.Messages.RunCompletion
 import com.zuora.payment.run.Messages.Running
-
 import akka.actor.Actor
 import akka.actor.ActorLogging
 import akka.actor.ActorRef
@@ -33,6 +30,7 @@ import spray.httpx.Json4sSupport
 import spray.routing.Directive.pimpApply
 import spray.routing.HttpService
 import spray.routing.Route
+import akka.cluster.ClusterEvent.MemberRemoved
 
 class Server extends Actor with ServerService with ActorLogging {
   implicit val timeout = Timeout(5 seconds)
@@ -61,6 +59,16 @@ class Server extends Actor with ServerService with ActorLogging {
         log.info("found one worker node: {}", member)
         nodes = member :: nodes
       }
+      
+    case UnreachableMember(member) =>
+      log.info("unreachable member found: {}", member)
+      nodes = nodes.dropWhile { m => m == member }
+      log.info("removed unreachable member, node list: {}", nodes)
+      
+    case MemberRemoved(member, previousStatus) =>
+      log.info("member {} was removed", member)
+      nodes = nodes.dropWhile { m => m == member }
+      log.info("removed unreachable member, node list: {}", nodes)
       
     case Running(pmKey, actor) =>
       db += (pmKey -> actor)
@@ -100,11 +108,18 @@ trait ServerService extends HttpService with PerRequestCreator with Json4sSuppor
             }
           }
         }
+      } ~
+      path("") {
+        get {
+          compressResponse() {
+            getFromResource("d3/cluster.html")
+          }
+        }
       }
 
   def handlePerRequest(message: RequestMessage): Route =
     // To share immutable `db` and `nodes` state with other actors by message.
-    ctx => perRequest(actorRefFactory, ctx, Props(classOf[ServerManager], db, nodes), message)
+    ctx => perRequest(actorRefFactory, ctx, Props(classOf[ServerManager], db, nodes).withDispatcher("akka.actor.status-checker-dispatcher"), message)
 }
 
 /**
@@ -125,5 +140,5 @@ object Server extends App { self =>
   implicit val timeout = Timeout(5 seconds)
   val serverActor = system.actorOf(Props[Server], name = "Server")
 
-  IO(Http) ? Http.Bind(serverActor, interface = "localhost", port = 8080)
+  IO(Http) ? Http.Bind(serverActor, interface = "0.0.0.0", port = 8080)
 }
