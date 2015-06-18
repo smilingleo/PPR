@@ -2,7 +2,9 @@ package com.zuora.payment.run
 
 import scala.collection.mutable.Map
 import scala.collection.mutable.Queue
+import scala.concurrent.duration.DurationInt
 import scala.language.postfixOps
+
 import scala.util.Random
 import Messages._
 import Models.Invoice
@@ -52,6 +54,15 @@ class PaymentRunManager(runNumber: String = "sample_payment_run", INV_AMOUNT: In
   
   var result = List.empty[Payment]
   //----------States End ----------------
+  
+  implicit val sysDispatcher = context.system.dispatcher
+  
+  context.watch(self)
+  val heartBeating = context.system.scheduler.schedule(1 seconds, 1 seconds) {
+    if (context != null)
+      context.actorSelection("/user/nodeManager") ! RunProgress(runNumber, INV_AMOUNT, INV_AMOUNT - workQueue.size, 0)
+  }
+  
   
   private def loadWork = {
 	  val invoices = (1 to INV_AMOUNT).map(i => Invoice(i.toString, Math.abs(Random.nextDouble()))).toSeq
@@ -106,18 +117,22 @@ class PaymentRunManager(runNumber: String = "sample_payment_run", INV_AMOUNT: In
       }
       
     case Terminated(worker) =>
-      workers.get(worker.path) match {
-      case Some(Some(inv)) =>
-        log.info("node {} is terminated and it was processing invoice {}, put the invoice back to queue. ", worker, inv)
-        workers -= worker.path
-        workQueue.enqueue(inv)
-      case Some(None) =>
-        log.info("node {} is terminated and it was idle ", worker)
-        workers -= worker.path
-        
-      case None =>
-        // do nothing.
-      }
+      if (worker == self) {
+        heartBeating.cancel()
+      } else {
+    	  workers.get(worker.path) match {
+    	  case Some(Some(inv)) =>
+    	  log.info("node {} is terminated and it was processing invoice {}, put the invoice back to queue. ", worker, inv)
+    	  workers -= worker.path
+    	  workQueue.enqueue(inv)
+    	  case Some(None) =>
+    	  log.info("node {} is terminated and it was idle ", worker)
+    	  workers -= worker.path
+    	  
+    	  case None =>
+    	  // do nothing.
+    	  }
+      } 
       
     case WorkerRequestsWork(worker) =>
       log.info("worker: {} is requesting work.", worker)
@@ -132,7 +147,7 @@ class PaymentRunManager(runNumber: String = "sample_payment_run", INV_AMOUNT: In
           worker ! Job(invoice)
         }
       }
-      showWorkerStatus()
+      checkStatus()
       
     case WorkIsDone(payment, worker) =>
       log.info("worker: {} has processed one payment: {}", worker, payment)
@@ -140,7 +155,7 @@ class PaymentRunManager(runNumber: String = "sample_payment_run", INV_AMOUNT: In
       persist(payment){ pmt => 
         result = pmt :: result
         // check status in callback of persist, since it's asynchronous call.
-        showWorkerStatus()
+        checkStatus()
       } 
       workers += (worker.path -> None) // mark worker as idle
       
@@ -166,12 +181,12 @@ class PaymentRunManager(runNumber: String = "sample_payment_run", INV_AMOUNT: In
         
   }
   
-  private def showWorkerStatus(): Unit = {
+  private def checkStatus(): Unit = {
     val status = workers.map{
       case (worker, invOp) => worker + " --> " + (if (invOp.isEmpty) "idle" else invOp.get.id)
     }.mkString("\t")
-    println(status)
-    println("|||| state: " + result.map(inv => inv.id).mkString(","))
+//    println(status)
+//    println("|||| state: " + result.map(inv => inv.id).mkString(","))
 
     if (result.size == INV_AMOUNT) { // no more work and all workers are idle
     	log.info("All invoices have been processed. There are {} payments in total.", result.size)

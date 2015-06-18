@@ -26,6 +26,10 @@ circle.ring {
   stroke-width: 1.5px;
 }
 
+path.progress {
+  fill: blue;
+}
+
 </style>
 </head>
 <body>
@@ -35,6 +39,7 @@ circle.ring {
 <script>
 
 var diameter = 900;
+var pi = Math.PI;
 var data = {"name": "Akka Cluster", "children": []};
 
 var tree = d3.layout.tree()
@@ -98,10 +103,41 @@ function redraw() {
 	  .enter().append("g")
 	    .attr("class", "node")      
 	    .attr("transform", function(d) { return "rotate(" + (d.x - 90) + ")translate(" + d.y + ")"; })
+
+	// outer ring for pm actor
+	node.append("path")
+	    .attr("d", function(d){
+	    	var isJobManager = d && d.role == "jobManager";
+	    	var innerRadius = isJobManager ? 10 : 6;
+	    	var outerRadius = isJobManager ? 13 : 6;
+	    	var endAngle = isJobManager ? (((d.status.done + d.status.failed) / d.status.total) * 360) : 0;
+			var arc = d3.svg.arc()
+			    .innerRadius(innerRadius)
+			    .outerRadius(outerRadius)
+			    .startAngle(0)
+			    .endAngle(endAngle * (pi/180))
+			return arc(); 
+	    })
+	    .attr("class", "progress");
 	
 	node.append("circle")
-	    .attr("r", function(d){ if (d.role == "node") return diameter / 30; else return 6; })
-	    .style("fill", function(d, i) { if (d.depth == 1) return color(i + 2); else return color(d.size); });
+	    .attr("r", function(d){ 
+	    	if (d.role == "node") 
+	    		return diameter / 30;
+	    	else if (d.role == "jobManager")
+	    		return 10;  // payment run manager is bigger
+	    	else 
+	    		return 6; 
+	     })
+	    .style("fill", function(d, i) { 
+	    	// if (d.depth == 1) return color(i + 2); else return color(d.size);
+	    	if (d.role == "node")
+	    		return "green";
+	    	else if (d.role == "jobManager")
+	    		return "orange";
+	    	else
+	    		return "blue"
+	   	 });
 	
 	node.append("text")
 	    .attr("dy", ".31em")

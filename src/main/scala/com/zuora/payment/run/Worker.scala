@@ -1,5 +1,6 @@
 package com.zuora.payment.run
-
+import scala.concurrent.duration.DurationInt
+import scala.language.postfixOps
 import com.typesafe.config.ConfigFactory
 import Messages.CheckStatus
 import Messages.CreatePaymentRun
@@ -32,9 +33,25 @@ import akka.cluster.ClusterEvent.MemberUp
 import akka.cluster.Member
 import akka.cluster.ClusterEvent.MemberRemoved
 import akka.actor.RootActorPath
+import com.zuora.payment.run.Messages.RunProgress
+import com.zuora.payment.run.Messages.WorkerStatus
+import com.zuora.payment.run.Messages.ActorStatus
+import akka.actor.Terminated
 
 
 class Worker(prActor: ActorRef) extends Actor with ActorLogging {
+  
+  implicit val sysDispatcher = context.system.dispatcher
+  
+  var processingInv: Option[Invoice] = None
+  
+  context.watch(self)
+  
+  val heartBeating = context.system.scheduler.schedule(1 seconds, 1 seconds) {
+    if (context != null)
+      context.actorSelection("/user/nodeManager") ! WorkerStatus(self, processingInv)
+  }
+  
   override def preStart = {
     log.info("notifying {} I'm created.", prActor)
     prActor ! WorkerCreated(self)
@@ -46,19 +63,23 @@ class Worker(prActor: ActorRef) extends Actor with ActorLogging {
       sender ! WorkerRequestsWork(self)
       
     case Job(invoice) =>
+      processingInv = Some(invoice)
       log.info("Got invoice: {}", invoice)
-      val payment = processInvoice(invoice)
-      sender ! WorkIsDone(payment, self)
+      
+      val pmActor = sender()
+      val payment = Payment(invoice.id, invoice.balance)
+      
+      Thread.sleep(500)  // don't use scheduler since it's too fast.
+      
+      pmActor ! WorkIsDone(payment, self)
+      processingInv = None
       
     case NoWorkToBeDone =>
       // do nothing
-      
-  }
-  
-  private def processInvoice(inv: Invoice): Payment = {
-    // block current thread for 1 second to simulate the processing
-	  Thread.sleep(5000)
-	  Payment(inv.id, inv.balance)
+    
+    case Terminated(actor) =>
+      if (actor == self)
+        heartBeating.cancel()
   }
 }
 
@@ -69,6 +90,8 @@ class NodeManager extends Actor with ActorLogging {
   val cluster = Cluster(context.system)
   var serverMember: Option[Member] = None
   
+  var status: Map[ActorRef, ActorStatus] = Map.empty[ActorRef, ActorStatus]
+  
   override def preStart = {
     cluster.subscribe(self, initialStateMode = InitialStateAsEvents, classOf[MemberEvent], classOf[UnreachableMember])
     context.system.eventStream.subscribe(self, classOf[DeadLetter])
@@ -77,7 +100,7 @@ class NodeManager extends Actor with ActorLogging {
   override def postStop(): Unit = {
     cluster.unsubscribe(self)
   }  
-  
+
   def receive: Actor.Receive = {
     case CreateWorker(n, runKey) =>
       log.info("Creating {} workers for {}", n, runKey)
@@ -96,12 +119,28 @@ class NodeManager extends Actor with ActorLogging {
        }
        
     case CheckStatus =>
-       val actorNames = context.children.map(ref => ref.path.name)
-       sender() ! actorNames
+       sender() ! status
     
+    case RunProgress(pmKey, total, done, failed) =>  
+       status += (sender() -> RunProgress(pmKey, total, done, failed))
+       
+    case WorkerStatus(af, invOps) =>
+       status += (sender() -> WorkerStatus(af, invOps))
+       
     case RunCompletion(pmKey) =>
       log.info("payment run: {} is finished, killing its workers", pmKey)
       context.actorSelection(s"/user/nodeManager/workerFor_${pmKey}_*") ! PoisonPill
+      val pmActor = sender()
+      status -= pmActor
+      status = status.dropWhile{ p =>
+        val actor = p._1
+        p._2 match {
+          case WorkerStatus(af, invOps) =>
+            status.contains(af)
+          case _ =>
+            false
+        }
+      }
       
     case d: DeadLetter =>
       log.info("xxxxxxxxx dead letter found: {}", d)

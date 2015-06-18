@@ -46,22 +46,23 @@ class ServerManager(db: Map[String, ActorRef], nodes: List[Member]) extends Acto
         val nodeName = member.address.host.getOrElse("Node") + ":" + member.address.port.getOrElse(t._2)
         val providerPath = (RootActorPath(member.address) / "user" / "nodeManager")
         try{
-        	val children = Await.result(ask(context.actorSelection(providerPath), CheckStatus).mapTo[Iterable[String]], 2 seconds)
-        			val workers = children.map{ name =>
-        			if (name.startsWith("paymentRunManager"))
-        				Node(name, "paymentRunManager", Seq.empty[Node])
-        				else
-        					Node(name, "worker", Seq.empty[Node])
+        	val status = Await.result(ask(context.actorSelection(providerPath), CheckStatus).mapTo[Map[ActorRef, ActorStatus]], 2 seconds)
+    			val actors = status.map{ t =>
+            val name = t._1.path.name
+            if (name.startsWith("paymentRunManager"))
+      				Node(name, "jobManager", Seq.empty[Node], t._2)
+    				else
+    					Node(name, "worker", Seq.empty[Node], t._2)
         	}
-        	Node(nodeName, "node", Node("nodeManager", "nodeManager", workers.toSeq) :: Nil) 
+        	Node(nodeName, "node", Node("nodeManager", "nodeManager", actors.toSeq, NodeStatus(true)) :: Nil, NodeStatus(true)) 
           
         }catch{
           case e: java.util.concurrent.TimeoutException =>
-            Node(nodeName, "node", Nil)
+            Node(nodeName, "node", Nil, NodeStatus(false))
         }
       }
       
-      val cluster = Node("Akka Cluster", "cluster", children)
+      val cluster = Node("Akka Cluster", "cluster", children, NodeStatus(true))
       sender() ! Success(cluster)
 
     case CreatePaymentRun(job) =>
