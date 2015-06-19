@@ -1,4 +1,4 @@
-package com.zuora.payment.run
+package com.zuora.message
 
 import akka.actor.ActorRef
 /**

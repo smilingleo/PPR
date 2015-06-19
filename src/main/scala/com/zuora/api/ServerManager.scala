@@ -5,7 +5,7 @@ import scala.concurrent.Future
 import scala.concurrent.duration.DurationInt
 import scala.language.postfixOps
 import scala.util.Random
-import com.zuora.payment.run.Messages._
+import com.zuora.message.Messages._
 import com.zuora.payment.run.PaymentRunManager
 import akka.actor.Actor
 import akka.actor.ActorLogging

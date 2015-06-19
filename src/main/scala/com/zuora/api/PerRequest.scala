@@ -2,15 +2,10 @@ package com.zuora.api
 
 import scala.concurrent.duration.DurationInt
 import scala.language.postfixOps
-
 import org.json4s.DefaultFormats
 import org.json4s.JsonDSL.boolean2jvalue
 import org.json4s.JsonDSL.pair2Assoc
 import org.json4s.JsonDSL.string2jvalue
-
-import com.zuora.payment.run.Messages.Error
-import com.zuora.payment.run.Messages.RequestMessage
-
 import akka.actor.Actor
 import akka.actor.ActorRef
 import akka.actor.ActorRefFactory
@@ -27,7 +22,7 @@ import spray.http.StatusCodes.InternalServerError
 import spray.http.StatusCodes.OK
 import spray.httpx.Json4sSupport
 import spray.routing.RequestContext
-import spray.routing.directives.RouteDirectives._
+import com.zuora.message.Messages._
 
 /**
  * Per request pattern, taken from https://github.com/NET-A-PORTER/spray-actor-per-request
@@ -46,7 +41,7 @@ trait PerRequest extends Actor with Json4sSupport {
     target ! message
 
     def receive = {
-      case com.zuora.payment.run.Messages.Success(payload) =>
+      case com.zuora.message.Messages.Success(payload) =>
         complete(OK, payload)
       
       case Error(message) => 

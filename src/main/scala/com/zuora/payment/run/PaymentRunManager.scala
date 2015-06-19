@@ -6,9 +6,8 @@ import scala.concurrent.duration.DurationInt
 import scala.language.postfixOps
 
 import scala.util.Random
-import Messages._
-import Models.Invoice
-import Models.Payment
+import com.zuora.message.Messages._
+import com.zuora.message.Models._
 import akka.actor.ActorLogging
 import akka.actor.ActorPath
 import akka.actor.ActorSelection.toScala

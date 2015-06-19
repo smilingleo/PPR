@@ -93,7 +93,7 @@ function redraw() {
 	// draw the cluster ring
 	if (link.length > 0 && link[0].length > 0 && link[0][0].__data__){
 	  var sampleLink = link[0][0].__data__;
-	  var rr = Math.sqrt(Math.pow(sampleLink.source.x || 0 - sampleLink.target.x || 0, 2) + Math.pow(sampleLink.source.y || 0 - sampleLink.target.y || 0, 2));
+	  var rr = Math.sqrt(Math.pow((sampleLink.source.x || 0) - (sampleLink.target.x || 0), 2) + Math.pow((sampleLink.source.y || 0) - (sampleLink.target.y || 0), 2));
 	  // cluster circle
 	  svg.append("circle").attr("r", rr).attr("class", "ring");
 	}

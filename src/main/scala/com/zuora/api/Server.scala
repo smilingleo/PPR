@@ -4,13 +4,7 @@ import scala.concurrent.duration.DurationInt
 import scala.language.postfixOps
 import org.json4s.DefaultFormats
 import com.typesafe.config.ConfigFactory
-import com.zuora.payment.run.Messages.CheckProgress
-import com.zuora.payment.run.Messages.CheckStatus
-import com.zuora.payment.run.Messages.CreatePaymentRun
-import com.zuora.payment.run.Messages.NewJob
-import com.zuora.payment.run.Messages.RequestMessage
-import com.zuora.payment.run.Messages.RunCompletion
-import com.zuora.payment.run.Messages.Running
+import com.zuora.message.Messages._
 import akka.actor.Actor
 import akka.actor.ActorLogging
 import akka.actor.ActorRef
@@ -119,7 +113,8 @@ trait ServerService extends HttpService with PerRequestCreator with Json4sSuppor
 
   def handlePerRequest(message: RequestMessage): Route =
     // To share immutable `db` and `nodes` state with other actors by message.
-    ctx => perRequest(actorRefFactory, ctx, Props(classOf[ServerManager], db, nodes).withDispatcher("akka.actor.status-checker-dispatcher"), message)
+    ctx => perRequest(actorRefFactory, ctx, Props(classOf[ServerManager], db, nodes)
+        .withDispatcher("akka.actor.status-checker-dispatcher"), message)
 }
 
 /**

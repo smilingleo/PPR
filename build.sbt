@@ -1,7 +1,7 @@
 import com.typesafe.sbt.SbtMultiJvm
 import com.typesafe.sbt.SbtMultiJvm.MultiJvmKeys.MultiJvm
 
-val akkaVersion = "2.4-SNAPSHOT"
+val akkaVersion = "2.3.11"
 
 val sprayVersion = "1.3.2"
 
@@ -12,6 +12,8 @@ val project = Project(
     name := "parallel-payment-run",
     version := "2.3.9",
     scalaVersion := "2.10.4",
+    resolvers += "dnvriend at bintray" at "http://dl.bintray.com/dnvriend/maven",
+	libraryDependencies += "com.github.dnvriend" %% "akka-persistence-jdbc" % "1.1.5",
     scalacOptions in Compile ++= Seq("-encoding", "UTF-8", "-target:jvm-1.6", "-deprecation", "-feature", "-unchecked", "-Xlog-reflective-calls", "-Xlint"),
     javacOptions in Compile ++= Seq("-source", "1.6", "-target", "1.6", "-Xlint:unchecked", "-Xlint:deprecation"),
     libraryDependencies ++= Seq(
@@ -28,6 +30,7 @@ val project = Project(
       "org.json4s" %% "json4s-native" % "3.2.11" withSources(),
       "org.json4s" %% "json4s-jackson" % "3.2.11" withSources(),
       "org.scalatest" %% "scalatest" % "2.0" % "test" withSources() withJavadoc(),
+      "mysql"		   % "mysql-connector-java" % "5.1.35",
       "org.fusesource" % "sigar" % "1.6.4"),
     javaOptions in run ++= Seq(
       "-Djava.library.path=./sigar",
