@@ -1,7 +1,20 @@
-# Fully Recoverable Cluster
-This is version #4, in this version, the cluster is fully recoverable.
+# Parallel Processing on Akka Cluster
+![Akka Cluster](https://github.com/smilingleo/PPR/blob/master/src/main/resources/d3/akka-cluster.png)
 
-`PaymentRunManager` now extends `PersistentActor`, it maintains a list of processed payments, when its hosting node was restarted, it can recover from previous failure and continue the work.
+This is a sample app which demostrates how to process a business run on an Akka cluster.
+
+The sample use case here is to process a payment run, basically to process each invoice with an actor. There are 3 types of actors:
+
++ PaymentRunManager
+  + the *orange* node with a blue progress edge ring.
+  + a PersistentActor, it maintains a list of processed payments, when its hosting node was restarted, it can recover from previous failure and continue the work.
++ Worker
+  + the *blue* spot
+  + a slave actor responsible to process invoices, it's using a pull pattern to prevent message overflow.
++ NodeManager
+  + the *green* node on the big ring.
+  + singleton actor for each node, responsible to create actor on each node, so it's parent of all above actors.
+  + can also collect the status of each actor.
 
 
 ## Configuration
