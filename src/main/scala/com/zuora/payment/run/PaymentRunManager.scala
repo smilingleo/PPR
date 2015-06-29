@@ -59,7 +59,7 @@ class PaymentRunManager(runNumber: String = "sample_payment_run", INV_AMOUNT: In
   context.watch(self)
   val heartBeating = context.system.scheduler.schedule(1 seconds, 1 seconds) {
     if (context != null)
-      context.actorSelection("/user/nodeManager") ! RunProgress(runNumber, INV_AMOUNT, INV_AMOUNT - workQueue.size, 0)
+      context.actorSelection("/user/nodeManager") ! RunProgress(runNumber, INV_AMOUNT, result.size, 0)
   }
   
   
@@ -120,17 +120,17 @@ class PaymentRunManager(runNumber: String = "sample_payment_run", INV_AMOUNT: In
         heartBeating.cancel()
       } else {
     	  workers.get(worker.path) match {
-    	  case Some(Some(inv)) =>
-    	  log.info("node {} is terminated and it was processing invoice {}, put the invoice back to queue. ", worker, inv)
-    	  workers -= worker.path
-    	  workQueue.enqueue(inv)
-    	  case Some(None) =>
-    	  log.info("node {} is terminated and it was idle ", worker)
-    	  workers -= worker.path
-    	  
-    	  case None =>
-    	  // do nothing.
-    	  }
+      	  case Some(Some(inv)) =>
+        	  log.info("node {} is terminated and it was processing invoice {}, put the invoice back to queue. ", worker, inv)
+        	  workers -= worker.path
+        	  workQueue.enqueue(inv)
+      	  case Some(None) =>
+        	  log.info("node {} is terminated and it was idle ", worker)
+        	  workers -= worker.path
+      	  
+      	  case None =>
+        	  // do nothing.
+      	  }
       } 
       
     case WorkerRequestsWork(worker) =>
@@ -153,14 +153,14 @@ class PaymentRunManager(runNumber: String = "sample_payment_run", INV_AMOUNT: In
       // persist the state asynchronously
       persist(payment){ pmt => 
         result = pmt :: result
+
+        workers += (worker.path -> None) // mark worker as idle
+        
         // check status in callback of persist, since it's asynchronous call.
         checkStatus()
       } 
-      workers += (worker.path -> None) // mark worker as idle
       
 
-      if (!workQueue.isEmpty)
-        notifyWorkers()
         
     case CheckProgress(pmKey) =>
       log.info("*************respond run progress for {}", runNumber)
@@ -189,10 +189,12 @@ class PaymentRunManager(runNumber: String = "sample_payment_run", INV_AMOUNT: In
 
     if (result.size == INV_AMOUNT) { // no more work and all workers are idle
     	log.info("All invoices have been processed. There are {} payments in total.", result.size)
-    	result = Nil  // clear the state.
       
       nodes.foreach(member => context.actorSelection(RootActorPath(member.address) / "user" / "nodeManager") ! RunCompletion(runNumber))
-    	self ! PoisonPill
+      
+    	context.stop(self)
+    } else {
+      notifyWorkers()
     }
   }
   

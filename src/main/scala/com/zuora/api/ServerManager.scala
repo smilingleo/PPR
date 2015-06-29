@@ -41,29 +41,50 @@ class ServerManager(db: Map[String, ActorRef], nodes: List[Member]) extends Acto
       }
 
     case CheckStatus =>
-      val children = nodes.zipWithIndex.map { t =>
-        val member = t._1
-        val nodeName = member.address.host.getOrElse("Node") + ":" + member.address.port.getOrElse(t._2)
-        val providerPath = (RootActorPath(member.address) / "user" / "nodeManager")
-        try{
-        	val status = Await.result(ask(context.actorSelection(providerPath), CheckStatus).mapTo[Map[ActorRef, ActorStatus]], 2 seconds)
-    			val actors = status.map{ t =>
-            val name = t._1.path.name
-            if (name.startsWith("paymentRunManager"))
-      				Node(name, "jobManager", Seq.empty[Node], t._2)
-    				else
-    					Node(name, "worker", Seq.empty[Node], t._2)
-        	}
-        	Node(nodeName, "node", Node("nodeManager", "nodeManager", actors.toSeq, NodeStatus(true)) :: Nil, NodeStatus(true)) 
-          
-        }catch{
-          case e: java.util.concurrent.TimeoutException =>
-            Node(nodeName, "node", Nil, NodeStatus(false))
-        }
-      }
+      // extra pattern
+      val originalSender = sender()
+      val totalNodes = nodes.size
       
-      val cluster = Node("Akka Cluster", "cluster", children, NodeStatus(true))
-      sender() ! Success(cluster)
+      context.actorOf(Props(new Actor(){
+        // <nodeManager, <actor, status>>
+        var status = Map.empty[ActorRef, Map[ActorRef, ActorStatus]]
+        def receive: Actor.Receive = {
+          case m: Map[ActorRef, ActorStatus] =>
+            status = status + (sender() -> m)
+            checkDone
+          case CheckStatusTimeout =>
+            originalSender ! Error("checkStatus timed out")
+            context.stop(self) // stop the extra actor
+        }
+        
+        private def checkDone() = {
+          if (status.size == totalNodes){
+        	  timeoutManager.cancel()
+
+            val allNodes = status.map{ t =>
+              val nodeName = t._1.path.address.host.getOrElse("node") + ":" + t._1.path.address.port.getOrElse(0)
+              val actors = t._2.map{ tt =>
+                val name = tt._1.path.name
+                if (name.startsWith("paymentRunManager"))
+              	  Node(name, "jobManager", Seq.empty[Node], tt._2)
+              	  else
+              		  Node(name, "worker", Seq.empty[Node], tt._2)
+              }
+              Node(nodeName, "node", Node("nodeManager", "nodeManager", actors.toSeq, NodeStatus(true)) :: Nil, NodeStatus(true)) 
+            }
+
+            originalSender ! Success(Node("Akka Cluster", "cluster", allNodes.toSeq.sortBy { node => node.name }, NodeStatus(true)))
+          }
+        }
+          
+        nodes.foreach { member =>
+          val providerPath = (RootActorPath(member.address) / "user" / "nodeManager")
+          context.actorSelection(providerPath) ! CheckStatus
+        }
+        
+        import context.dispatcher
+        val timeoutManager = context.system.scheduler.scheduleOnce(2 seconds) { self ! CheckStatusTimeout}
+      }))
 
     case CreatePaymentRun(job) =>
       if (nodes.length > 0) {

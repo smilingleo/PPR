@@ -53,6 +53,7 @@ object Messages {
   case class WorkerStatus(actor: ActorRef, inv: Option[Invoice]) extends ActorStatus
   case class RunProgress(pmKey: String, total: Int, done: Int, failed: Int) extends ActorStatus
   
+  case object CheckStatusTimeout
 }
 
 
